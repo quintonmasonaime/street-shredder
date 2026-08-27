@@ -4,26 +4,88 @@
   <meta charset="UTF-8">
   <meta name="viewport"
         content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#111827">
   <title>Street Shredder 🛹</title>
   <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
-
 <div id="game">
-  <canvas id="canvas"></canvas>
+  <canvas id="canvas" aria-label="Street Shredder skateboarding game"></canvas>
 
-  <div id="hud">
-    ⭐ <span id="score">0</span>
-    <span>🔥 <span id="combo">0</span>x</span>
+  <div id="hud" class="is-hidden">
+    <div class="score-pill">
+      <span>⭐</span>
+      <span id="score">0</span>
+    </div>
+
+    <div class="hud-right">
+      <div class="combo-pill">
+        <span>🔥</span>
+        <span id="combo">0</span><small>x</small>
+      </div>
+      <button id="sound-toggle" class="icon-button" type="button" aria-label="Mute sound">🔊</button>
+    </div>
   </div>
 
-  <div id="instructions">
+  <div id="trick-status" aria-live="polite"></div>
+
+  <div id="instructions" class="is-hidden">
     SWIPE UP TO JUMP<br>
-    <small>Tap in the air to do a trick!</small>
+    <small>TAP IN THE AIR FOR A FLIP • LAND CLEAN</small>
   </div>
 
-  <button id="restart">↻ Restart</button>
+  <button id="restart" class="is-hidden" type="button">↻ Restart</button>
+
+  <section id="menu" class="overlay" aria-label="Street Shredder menu">
+    <div class="menu-card">
+      <p class="eyebrow">ARCADE RUN • 01</p>
+      <h1>Street Shredder <span>🛹</span></h1>
+      <p class="tagline">Own the street. Stack the tricks. Don’t bail.</p>
+
+      <div class="best-row">
+        <span>BEST RUN</span>
+        <strong id="best-score">0</strong>
+      </div>
+
+      <h2>Choose your rider</h2>
+      <div id="character-select" class="character-select">
+        <button class="character-option is-selected" type="button" data-character="street">
+          <span class="rider-preview rider-street">●</span>
+          <span><strong>Street</strong><small>Balanced</small></span>
+        </button>
+        <button class="character-option" type="button" data-character="neon">
+          <span class="rider-preview rider-neon">●</span>
+          <span><strong>Neon</strong><small>Electric style</small></span>
+        </button>
+        <button class="character-option" type="button" data-character="sunset">
+          <span class="rider-preview rider-sunset">●</span>
+          <span><strong>Sunset</strong><small>Golden hour</small></span>
+        </button>
+      </div>
+
+      <button id="start-button" class="primary-button" type="button">
+        Drop in <span>→</span>
+      </button>
+
+      <p class="menu-controls">
+        <span>↑</span> jump &nbsp; <span>← →</span> steer &nbsp; <span>tap</span> flip
+      </p>
+    </div>
+  </section>
+
+  <section id="game-over" class="overlay is-hidden" aria-label="Run complete" aria-hidden="true">
+    <div class="menu-card game-over-card">
+      <p class="eyebrow">RUN COMPLETE</p>
+      <h2 id="game-over-title">BAIL! 💥</h2>
+      <p class="final-score-label">FINAL SCORE</p>
+      <p id="final-score" class="final-score">0</p>
+      <p id="new-best" class="new-best is-hidden">NEW BEST RUN ✨</p>
+      <button id="play-again" class="primary-button" type="button">
+        Run it back <span>↻</span>
+      </button>
+    </div>
+  </section>
 </div>
 
 <script src="game.js"></script>
