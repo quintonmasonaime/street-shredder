@@ -4,6 +4,7 @@ const ctx = canvas.getContext("2d");
 const hud = document.getElementById("hud");
 const scoreText = document.getElementById("score");
 const comboText = document.getElementById("combo");
+const powerupStatus = document.getElementById("powerup-status");
 const instructions = document.getElementById("instructions");
 const trickStatus = document.getElementById("trick-status");
 const restart = document.getElementById("restart");
@@ -17,6 +18,13 @@ const bestScoreText = document.getElementById("best-score");
 const startButton = document.getElementById("start-button");
 const playAgain = document.getElementById("play-again");
 const characterOptions = document.querySelectorAll(".character-option");
+const openEditorButton = document.getElementById("open-editor");
+const editor = document.getElementById("editor");
+const editorHelp = document.querySelector(".editor-help");
+const editorBack = document.getElementById("editor-back");
+const editorClear = document.getElementById("editor-clear");
+const editorTest = document.getElementById("editor-test");
+const toolButtons = document.querySelectorAll(".tool-button");
 
 let W = 0;
 let H = 0;
@@ -29,9 +37,15 @@ let score = 0;
 let combo = 0;
 let gameStarted = false;
 let gameOver = false;
+let editorMode = false;
 let lastTime = 0;
+let animationClock = 0;
 
 let selectedCharacter = "street";
+let editorTool = "coin";
+let editorObjects = [];
+let customLevel = null;
+let lastRunLevel = null;
 let particles = [];
 let floatingTexts = [];
 let objects = [];
@@ -76,12 +90,17 @@ const player = {
   grinding: false,
   grindRail: null,
   grindTime: 0,
-  grindTick: 0
+  grindTick: 0,
+  shield: false,
+  multiplierTimer: 0,
+  magnetTimer: 0
 };
 
 const images = {};
 images.skater = new Image();
 images.skater.src = "sprites/skater.svg";
+images.skaterSheet = new Image();
+images.skaterSheet.src = "sprites/skater-sheet.svg";
 images.coin = new Image();
 images.coin.src = "sprites/coin.svg";
 images.ramp = new Image();
@@ -119,6 +138,24 @@ function updateSoundToggle() {
 }
 
 
+function updatePowerupHud() {
+  const active = [];
+  if (player.shield) active.push("🛡 SHIELD");
+  if (player.multiplierTimer > 0) active.push(`⚡ 2X ${Math.ceil(player.multiplierTimer)}s`);
+  if (player.magnetTimer > 0) active.push(`🧲 MAGNET ${Math.ceil(player.magnetTimer)}s`);
+
+  powerupStatus.textContent = active.join("  •  ");
+  powerupStatus.classList.toggle("is-hidden", active.length === 0);
+}
+
+
+function addScore(amount) {
+  const multiplier = player.multiplierTimer > 0 ? 2 : 1;
+  score += amount * multiplier;
+  return amount * multiplier;
+}
+
+
 function resize() {
   W = window.innerWidth;
   H = window.innerHeight;
@@ -135,6 +172,12 @@ function resize() {
   for (const object of objects) {
     if (object.groundOffset !== undefined) {
       object.y = ground - object.groundOffset;
+    }
+  }
+
+  for (const piece of editorObjects) {
+    if (piece.groundOffset !== undefined && piece.type !== "coin" && piece.type !== "powerup") {
+      piece.previewY = ground - piece.groundOffset;
     }
   }
 
@@ -182,7 +225,8 @@ function makeBlock(x) {
     y: ground - 58,
     groundOffset: 58,
     width: 54,
-    height: 58
+    height: 58,
+    hit: false
   };
 }
 
@@ -197,6 +241,68 @@ function makeRail(x) {
     height: 94,
     used: false
   };
+}
+
+
+function makeTraffic(x) {
+  return {
+    type: "traffic",
+    x,
+    y: ground - 52,
+    groundOffset: 52,
+    width: 76,
+    height: 52,
+    lateral: 0,
+    lateralVelocity: Math.random() < 0.5 ? 0.35 : -0.35,
+    hit: false,
+    passed: false
+  };
+}
+
+
+function makePowerup(x, groundOffset = 165, power = "shield") {
+  return {
+    type: "powerup",
+    x,
+    y: ground - groundOffset,
+    groundOffset,
+    width: 42,
+    height: 42,
+    power,
+    collected: false
+  };
+}
+
+
+function cloneLevelObject(source) {
+  const object = { ...source };
+  object.y = ground - object.groundOffset;
+  object.collected = false;
+  object.used = false;
+  object.hit = false;
+  if (object.type === "traffic") {
+    object.lateral = 0;
+    object.lateralVelocity = Math.random() < 0.5 ? 0.35 : -0.35;
+  }
+  return object;
+}
+
+
+function defaultLevel() {
+  return [
+    makeCoin(450, 150),
+    makeRamp(740),
+    makeCoin(900, 180),
+    makeRail(1080),
+    makeCoin(1240, 150),
+    makeTraffic(1390),
+    makePowerup(1515, 170, "shield"),
+    makeBlock(1640),
+    makeRamp(1830),
+    makeCoin(2020, 190),
+    makeRail(2190),
+    makePowerup(2400, 160, "x2")
+  ];
 }
 
 
@@ -224,24 +330,18 @@ function resetGame() {
   player.grindRail = null;
   player.grindTime = 0;
   player.grindTick = 0;
+  player.shield = false;
+  player.multiplierTimer = 0;
+  player.magnetTimer = 0;
 
   particles = [];
   floatingTexts = [];
 
-  objects = [
-    makeCoin(450, 150),
-    makeRamp(740),
-    makeCoin(900, 180),
-    makeRail(1080),
-    makeCoin(1240, 150),
-    makeBlock(1390),
-    makeRamp(1580),
-    makeCoin(1770, 190),
-    makeRail(1940),
-    makeCoin(2180, 145)
-  ];
+  const level = customLevel && customLevel.length ? customLevel : defaultLevel();
+  objects = level.map(cloneLevelObject).sort((a, b) => a.x - b.x);
 
   updateHud();
+  updatePowerupHud();
   trickStatus.classList.remove("show");
 
   if (gameStarted) {
@@ -258,9 +358,12 @@ function resetGame() {
 function showMenu() {
   gameStarted = false;
   gameOver = false;
+  editorMode = false;
   menu.classList.remove("is-hidden");
   gameOverPanel.classList.add("is-hidden");
   gameOverPanel.setAttribute("aria-hidden", "true");
+  editor.classList.add("is-hidden");
+  editor.setAttribute("aria-hidden", "true");
   hud.classList.add("is-hidden");
   restart.classList.add("is-hidden");
   instructions.classList.add("is-hidden");
@@ -268,15 +371,30 @@ function showMenu() {
 }
 
 
-function startRun() {
+function beginRun(level = null) {
   ensureAudio();
+  customLevel = level && level.length ? level.map(object => ({ ...object })) : null;
   gameStarted = true;
+  editorMode = false;
   menu.classList.add("is-hidden");
   gameOverPanel.classList.add("is-hidden");
   gameOverPanel.setAttribute("aria-hidden", "true");
+  editor.classList.add("is-hidden");
+  editor.setAttribute("aria-hidden", "true");
   hud.classList.remove("is-hidden");
   restart.classList.remove("is-hidden");
   resetGame();
+}
+
+
+function startRun() {
+  lastRunLevel = null;
+  beginRun(null);
+}
+
+
+function replayRun() {
+  beginRun(lastRunLevel);
 }
 
 
@@ -284,7 +402,7 @@ function jump(fromRamp = false) {
   if (!gameStarted) return;
 
   if (gameOver) {
-    startRun();
+    replayRun();
     return;
   }
 
@@ -316,9 +434,9 @@ function trick() {
   player.trickValue += 100;
   player.rotation += nextTrick === "KICKFLIP" ? Math.PI * 2 : -Math.PI * 2;
   combo += 1;
-  score += 100;
+  addScore(100);
 
-  showTrick(`${nextTrick} +100`, characters[selectedCharacter].accent);
+  showTrick(`${nextTrick} +${player.multiplierTimer > 0 ? 200 : 100}`, characters[selectedCharacter].accent);
   createParticles(
     player.x + player.width / 2,
     player.y + player.height / 2,
@@ -400,7 +518,7 @@ function startGrind(rail) {
   player.vy = 0;
   player.y = rail.y - player.height;
   rail.used = true;
-  score += 25;
+  addScore(25);
   addFloatingText("GRIND +25", player.x, player.y - 10, "#b9f6ff");
   createParticles(player.x + player.width / 2, rail.y, 8, "#fff3a0");
   sfxGrind();
@@ -411,15 +529,15 @@ function landPlayer() {
   if (!player.onGround) {
     if (player.trickValue > 0) {
       const bonus = 50 + Math.floor(player.airTime * 80);
-      score += bonus;
-      showTrick(`CLEAN LAND +${bonus}`, characters[selectedCharacter].accent);
-      addFloatingText(`+${bonus}`, player.x + 20, player.y, characters[selectedCharacter].accent);
+      const awarded = addScore(bonus);
+      showTrick(`CLEAN LAND +${awarded}`, characters[selectedCharacter].accent);
+      addFloatingText(`+${awarded}`, player.x + 20, player.y, characters[selectedCharacter].accent);
       createParticles(player.x + player.width / 2, ground, 10, characters[selectedCharacter].trail);
       sfxLand(true);
     } else if (player.airTime > 0.55) {
       const bonus = Math.floor(player.airTime * 100);
-      score += bonus;
-      addFloatingText(`AIR +${bonus}`, player.x + 20, player.y, "#ffffff");
+      const awarded = addScore(bonus);
+      addFloatingText(`AIR +${awarded}`, player.x + 20, player.y, "#ffffff");
       sfxLand(false);
       combo = 0;
     }
@@ -435,6 +553,42 @@ function landPlayer() {
   player.grinding = false;
   player.grindRail = null;
   player.grindTime = 0;
+}
+
+
+function absorbHit(object) {
+  if (!player.shield) return false;
+
+  player.shield = false;
+  object.hit = true;
+  const awarded = addScore(50);
+  showTrick("SHIELD SAVE", "#b9f6ff");
+  addFloatingText(`+${awarded}`, player.x + 20, player.y, "#b9f6ff");
+  createParticles(player.x + 25, player.y + 35, 22, "#b9f6ff");
+  updatePowerupHud();
+  return true;
+}
+
+
+function applyPowerup(object) {
+  object.collected = true;
+  const awarded = addScore(50);
+
+  if (object.power === "shield") {
+    player.shield = true;
+    showTrick("SHIELD ON", "#b9f6ff");
+  } else if (object.power === "x2") {
+    player.multiplierTimer = 9;
+    showTrick("2X SCORE", "#fff3a0");
+  } else {
+    player.magnetTimer = 9;
+    showTrick("COIN MAGNET", "#d4c2ff");
+  }
+
+  addFloatingText(`+${awarded}`, object.screenX, object.y, characters[selectedCharacter].accent);
+  createParticles(object.screenX + object.width / 2, object.y + object.height / 2, 18, characters[selectedCharacter].trail);
+  sfxPowerup(object.power);
+  updatePowerupHud();
 }
 
 
@@ -472,38 +626,55 @@ function spawnAhead() {
   const nextX = furthest + 300 + Math.random() * 140;
   const roll = Math.random();
 
-  if (roll < 0.28) {
+  if (roll < 0.22) {
     objects.push(makeCoin(nextX, 125 + Math.random() * 120));
     objects.push(makeCoin(nextX + 58, 155 + Math.random() * 95));
     objects.push(makeCoin(nextX + 116, 125 + Math.random() * 120));
-  } else if (roll < 0.5) {
+  } else if (roll < 0.4) {
     objects.push(makeRamp(nextX));
     objects.push(makeCoin(nextX + 155, 165 + Math.random() * 70));
-  } else if (roll < 0.72) {
+  } else if (roll < 0.58) {
     objects.push(makeRail(nextX));
     objects.push(makeCoin(nextX + 70, 205));
+  } else if (roll < 0.78) {
+    objects.push(makeTraffic(nextX));
+    objects.push(makePowerup(nextX + 130, 160, Math.random() < 0.5 ? "magnet" : "x2"));
   } else {
     objects.push(makeBlock(nextX));
-    if (Math.random() < 0.55) {
-      objects.push(makeCoin(nextX + 115, 145 + Math.random() * 80));
+    if (Math.random() < 0.6) {
+      objects.push(makePowerup(nextX + 115, 155, "shield"));
     }
   }
 }
 
 
 function update(delta) {
+  animationClock += delta;
   const frame = Math.min(2.5, delta / 16.67 || 1);
+
+  if (editorMode) {
+    updateParticles(delta, frame);
+    return;
+  }
 
   if (!gameStarted || gameOver) {
     updateParticles(delta, frame);
     return;
   }
 
+  if (player.multiplierTimer > 0) player.multiplierTimer = Math.max(0, player.multiplierTimer - delta / 1000);
+  if (player.magnetTimer > 0) player.magnetTimer = Math.max(0, player.magnetTimer - delta / 1000);
+  updatePowerupHud();
+
   speed = Math.min(11, speed + delta * 0.00015);
   worldX += speed * frame;
 
   for (const object of objects) {
-    object.screenX = object.x - worldX + W * 0.25;
+    if (object.type === "traffic") {
+      object.lateral += object.lateralVelocity * frame;
+      if (object.lateral > 18 || object.lateral < -18) object.lateralVelocity *= -1;
+    }
+    object.screenX = object.x - worldX + W * 0.25 + (object.lateral || 0);
   }
 
   player.vx *= Math.pow(0.94, frame);
@@ -530,9 +701,9 @@ function update(delta) {
       player.grindTick += delta;
 
       if (player.grindTick > 110) {
-        score += 10;
+        const awarded = addScore(10);
         player.grindTick = 0;
-        addFloatingText("+10", player.x + 20, player.y - 8, "#b9f6ff");
+        addFloatingText(`+${awarded}`, player.x + 20, player.y - 8, "#b9f6ff");
         createParticles(player.x + 18, rail.y, 3, "#fff3a0");
         sfxGrindTick();
       }
@@ -552,23 +723,40 @@ function update(delta) {
   }
 
   for (const object of objects) {
-    const objectBox = {
+    let objectBox = {
       x: object.screenX,
       y: object.y,
       width: object.width,
       height: object.height
     };
 
+    if (object.type === "coin" && !object.collected && player.magnetTimer > 0) {
+      objectBox = {
+        x: object.screenX - 90,
+        y: object.y - 90,
+        width: object.width + 180,
+        height: object.height + 180
+      };
+    }
+
     if (object.type === "coin" && !object.collected && touching(player, objectBox)) {
       object.collected = true;
-      score += 25;
-      addFloatingText("+25", object.screenX, object.y, "#fff3a0");
+      const awarded = addScore(25);
+      addFloatingText(`+${awarded}`, object.screenX, object.y, "#fff3a0");
       createParticles(object.screenX + object.width / 2, object.y + object.height / 2, 11, "#fff3a0");
       sfxCoin();
     }
 
-    if (object.type === "block" && touching(player, objectBox)) {
-      bail();
+    if (object.type === "powerup" && !object.collected && touching(player, objectBox)) {
+      applyPowerup(object);
+    }
+
+    if (
+      (object.type === "block" || object.type === "traffic") &&
+      !object.hit &&
+      touching(player, objectBox)
+    ) {
+      if (!absorbHit(object)) bail();
     }
 
     if (
@@ -696,6 +884,58 @@ function drawRail(object) {
 }
 
 
+function drawTraffic(object) {
+  const x = object.screenX;
+  const y = object.y;
+
+  ctx.save();
+  ctx.fillStyle = "#d64f57";
+  ctx.fillRect(x + 4, y + 15, object.width - 8, 25);
+  ctx.fillStyle = "#f16b55";
+  ctx.fillRect(x + 15, y + 7, object.width - 30, 18);
+  ctx.fillStyle = "#bde6ee";
+  ctx.fillRect(x + 21, y + 10, 13, 10);
+  ctx.fillRect(x + 40, y + 10, 13, 10);
+  ctx.fillStyle = "#fff0a7";
+  ctx.fillRect(x + object.width - 10, y + 22, 5, 7);
+  ctx.fillStyle = "#1c2432";
+  ctx.beginPath();
+  ctx.arc(x + 18, y + 42, 7, 0, Math.PI * 2);
+  ctx.arc(x + object.width - 18, y + 42, 7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+
+function powerupIcon(power) {
+  if (power === "shield") return "🛡";
+  if (power === "x2") return "2X";
+  return "🧲";
+}
+
+
+function drawPowerup(object) {
+  const x = object.screenX + object.width / 2;
+  const y = object.y + object.height / 2 + Math.sin(animationClock / 220 + object.x) * 5;
+  const color = object.power === "shield" ? "#b9f6ff" : object.power === "x2" ? "#fff3a0" : "#d4c2ff";
+
+  ctx.save();
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 16;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(x, y, 19, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "#202534";
+  ctx.font = object.power === "x2" ? "900 12px Arial" : "18px Arial";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(powerupIcon(object.power), x, y + 1);
+  ctx.restore();
+}
+
+
 function drawFallbackSkater() {
   ctx.fillStyle = "#f2c29b";
   ctx.beginPath();
@@ -715,26 +955,27 @@ function drawFallbackSkater() {
 }
 
 
+function drawCoin(object) {
+  if (images.coin.complete && images.coin.naturalWidth > 0) {
+    ctx.drawImage(images.coin, object.screenX, object.y, object.width, object.height);
+  }
+}
+
+
 function drawObjects() {
   for (const object of objects) {
     const x = object.screenX;
-    if (x < -200 || x > W + 200) continue;
+    if (x < -220 || x > W + 220) continue;
 
-    if (object.type === "coin" && !object.collected) {
-      if (images.coin.complete) {
-        ctx.drawImage(images.coin, x, object.y, object.width, object.height);
-      }
-    }
-
-    if (object.type === "ramp" && images.ramp.complete) {
+    if (object.type === "coin" && !object.collected) drawCoin(object);
+    if (object.type === "ramp" && images.ramp.complete && images.ramp.naturalWidth > 0) {
       ctx.drawImage(images.ramp, x, object.y, object.width, object.height);
     }
+    if (object.type === "rail") drawRail(object);
+    if (object.type === "traffic" && !object.hit) drawTraffic(object);
+    if (object.type === "powerup" && !object.collected) drawPowerup(object);
 
-    if (object.type === "rail") {
-      drawRail(object);
-    }
-
-    if (object.type === "block") {
+    if (object.type === "block" && !object.hit) {
       ctx.fillStyle = "#e86b4a";
       ctx.fillRect(x, object.y, object.width, object.height);
       ctx.fillStyle = "#ffd166";
@@ -765,13 +1006,30 @@ function drawPlayer() {
   ctx.translate(player.x + 26, player.y + 38);
   ctx.rotate(player.grinding ? 0 : player.rotation);
   ctx.filter = profile.filter;
-  if (images.skater.complete) {
+
+  const frame = Math.floor(animationClock / 130) % 4;
+  if (images.skaterSheet.complete && images.skaterSheet.naturalWidth >= 208) {
+    ctx.drawImage(images.skaterSheet, frame * 52, 0, 52, 76, -26, -38, 52, 76);
+  } else if (images.skater.complete && images.skater.naturalWidth > 0) {
     ctx.drawImage(images.skater, -26, -38, 52, 76);
   } else {
     drawFallbackSkater();
   }
   ctx.filter = "none";
   ctx.restore();
+
+  if (player.shield) {
+    ctx.save();
+    ctx.strokeStyle = "#b9f6ff";
+    ctx.lineWidth = 3;
+    ctx.globalAlpha = 0.7 + Math.sin(animationClock / 140) * 0.2;
+    ctx.shadowColor = "#b9f6ff";
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.arc(player.x + 26, player.y + 38, 43, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 
@@ -794,10 +1052,66 @@ function drawParticles() {
 }
 
 
+function editorPiecePreview(piece) {
+  const object = {
+    ...piece,
+    screenX: piece.screenX,
+    y: piece.previewY ?? ground - piece.groundOffset,
+    collected: false,
+    hit: false
+  };
+
+  if (piece.type === "coin") drawCoin(object);
+  if (piece.type === "ramp") {
+    if (images.ramp.complete && images.ramp.naturalWidth > 0) {
+      ctx.drawImage(images.ramp, object.screenX, object.y, object.width, object.height);
+    }
+  }
+  if (piece.type === "rail") drawRail(object);
+  if (piece.type === "traffic") drawTraffic(object);
+  if (piece.type === "powerup") drawPowerup(object);
+  if (piece.type === "block") {
+    ctx.fillStyle = "#e86b4a";
+    ctx.fillRect(object.screenX, object.y, object.width, object.height);
+  }
+}
+
+
+function drawEditorScene() {
+  ctx.save();
+  ctx.strokeStyle = "rgb(255 255 255 / 18%)";
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= W; x += 20) {
+    ctx.beginPath();
+    ctx.moveTo(x, Math.max(90, ground - 280));
+    ctx.lineTo(x, ground);
+    ctx.stroke();
+  }
+  for (let y = Math.max(90, ground - 280); y <= ground; y += 20) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+  ctx.fillStyle = "rgb(17 24 39 / 48%)";
+  ctx.fillRect(0, Math.max(90, ground - 280), W, ground - Math.max(90, ground - 280));
+  ctx.restore();
+
+  for (const piece of editorObjects) editorPiecePreview(piece);
+}
+
+
 function draw() {
   ctx.filter = "none";
   ctx.clearRect(0, 0, W, H);
   drawBackground();
+
+  if (editorMode) {
+    drawEditorScene();
+    drawParticles();
+    return;
+  }
+
   drawObjects();
   drawPlayer();
   drawParticles();
@@ -813,6 +1127,132 @@ function gameLoop(time) {
   draw();
   requestAnimationFrame(gameLoop);
 }
+
+
+/* PARK EDITOR */
+
+function editorPieceFor(tool, screenX, screenY) {
+  const common = { type: tool, screenX, collected: false };
+
+  if (tool === "coin") {
+    return {
+      ...common,
+      width: 34,
+      height: 34,
+      groundOffset: Math.max(95, ground - screenY),
+      previewY: Math.max(ground - 260, Math.min(ground - 90, screenY - 17))
+    };
+  }
+
+  if (tool === "powerup") {
+    return {
+      ...common,
+      width: 42,
+      height: 42,
+      power: "shield",
+      groundOffset: Math.max(110, ground - screenY),
+      previewY: Math.max(ground - 260, Math.min(ground - 90, screenY - 21))
+    };
+  }
+
+  if (tool === "ramp") {
+    return { ...common, width: 120, height: 72, groundOffset: 72, previewY: ground - 72 };
+  }
+
+  if (tool === "rail") {
+    return { ...common, width: 180, height: 94, groundOffset: 94, previewY: ground - 94 };
+  }
+
+  if (tool === "traffic") {
+    return { ...common, width: 76, height: 52, groundOffset: 52, previewY: ground - 52, lateral: 0 };
+  }
+
+  return { ...common, type: "block", width: 54, height: 58, groundOffset: 58, previewY: ground - 58 };
+}
+
+
+function handleEditorTap(clientX, clientY) {
+  if (clientY < 92 || clientY > H - 20) return;
+  if (editorObjects.length >= 24) {
+    editorHelp.textContent = "Park is full — clear it or test your line.";
+    return;
+  }
+
+  const x = Math.max(24, Math.min(W - 24, Math.round(clientX / 20) * 20));
+  const piece = editorPieceFor(editorTool, x, clientY);
+  editorObjects.push(piece);
+  editorHelp.textContent = `${editorObjects.length} piece${editorObjects.length === 1 ? "" : "s"} placed. Keep building or test your line.`;
+  createParticles(x, piece.previewY, 8, characters[selectedCharacter].accent);
+}
+
+
+function openEditor() {
+  editorMode = true;
+  gameStarted = false;
+  gameOver = false;
+  menu.classList.add("is-hidden");
+  gameOverPanel.classList.add("is-hidden");
+  gameOverPanel.setAttribute("aria-hidden", "true");
+  editor.classList.remove("is-hidden");
+  editor.setAttribute("aria-hidden", "false");
+  hud.classList.add("is-hidden");
+  restart.classList.add("is-hidden");
+  instructions.classList.add("is-hidden");
+  editorHelp.textContent = editorObjects.length
+    ? `${editorObjects.length} piece${editorObjects.length === 1 ? "" : "s"} placed. Keep building or test your line.`
+    : "Pick a piece, then tap the street below to place it. Build a line and test it.";
+  resize();
+}
+
+
+function closeEditor() {
+  editorMode = false;
+  editor.classList.add("is-hidden");
+  editor.setAttribute("aria-hidden", "true");
+  customLevel = null;
+  showMenu();
+  resetGame();
+}
+
+
+function editorLevelToWorld() {
+  return editorObjects.map(piece => {
+    const object = { ...piece };
+    delete object.screenX;
+    delete object.previewY;
+    delete object.collected;
+    object.x = Math.max(260, piece.screenX - W * 0.25);
+    object.groundOffset = Math.max(72, piece.groundOffset);
+    return object;
+  }).sort((a, b) => a.x - b.x);
+}
+
+
+function testCustomPark() {
+  if (!editorObjects.length) {
+    editorHelp.textContent = "Place at least one piece before testing your park.";
+    return;
+  }
+
+  lastRunLevel = editorLevelToWorld();
+  beginRun(lastRunLevel);
+}
+
+
+toolButtons.forEach(button => {
+  button.addEventListener("click", () => {
+    editorTool = button.dataset.tool;
+    toolButtons.forEach(item => item.classList.toggle("is-selected", item === button));
+  });
+});
+
+editorBack.addEventListener("click", closeEditor);
+editorClear.addEventListener("click", () => {
+  editorObjects = [];
+  editorHelp.textContent = "Park cleared. Pick a piece, then tap the street below to place it.";
+});
+editorTest.addEventListener("click", testCustomPark);
+openEditorButton.addEventListener("click", openEditor);
 
 
 /* AUDIO */
@@ -891,6 +1331,12 @@ function sfxGrindTick() {
 }
 
 
+function sfxPowerup(power) {
+  const start = power === "magnet" ? 520 : power === "x2" ? 660 : 420;
+  playTone(start, 0.2, "triangle", 0.045, start * 1.8);
+}
+
+
 function sfxCrash() {
   playTone(90, 0.38, "sawtooth", 0.06, 42);
 }
@@ -918,9 +1364,14 @@ canvas.addEventListener("pointerup", event => {
   const dy = event.clientY - startY;
   const duration = performance.now() - pointerDownAt;
 
+  if (editorMode) {
+    if (Math.abs(dx) < 25 && Math.abs(dy) < 25) handleEditorTap(event.clientX, event.clientY);
+    return;
+  }
+
   if (!gameStarted) return;
   if (gameOver) {
-    startRun();
+    replayRun();
     return;
   }
 
@@ -953,14 +1404,19 @@ canvas.addEventListener("pointercancel", event => {
 
 
 window.addEventListener("keydown", event => {
-  if (event.code === "Enter" && !gameStarted) {
+  if (event.code === "Enter" && !gameStarted && !editorMode) {
     startRun();
+    return;
+  }
+
+  if (event.code === "Escape" && editorMode) {
+    closeEditor();
     return;
   }
 
   if (event.code === "Space" || event.code === "ArrowUp") {
     event.preventDefault();
-    if (!gameStarted) startRun();
+    if (!gameStarted && !editorMode) startRun();
     else jump();
   }
 
@@ -985,7 +1441,7 @@ characterOptions.forEach(option => {
 
 
 startButton.addEventListener("click", startRun);
-playAgain.addEventListener("click", startRun);
+playAgain.addEventListener("click", replayRun);
 restart.addEventListener("click", startRun);
 
 soundToggle.addEventListener("click", () => {
