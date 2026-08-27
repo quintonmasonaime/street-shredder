@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 120 72">
+
+  <path d="M3 68
+           L112 68
+           Q117 68 117 61
+           L117 50
+           Q115 49 111 53
+           L70 68 Z"
+        fill="#ef7657"
+        stroke="#272b38"
+        stroke-width="4"/>
+
+  <path d="M9 62 L69 62"
+        stroke="#ffd166"
+        stroke-width="6"/>
+</svg>
+
