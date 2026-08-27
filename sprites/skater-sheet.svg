@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 208 76" width="208" height="76">
+  <defs>
+    <g id="rider"
+       stroke="#202534"
+       stroke-width="3"
+       stroke-linecap="round"
+       stroke-linejoin="round">
+      <circle cx="27" cy="11" r="8" fill="#f2c29b"/>
+      <path d="M20 8 C23 0 34 0 38 9 C32 6 26 7 20 8" fill="#51352b"/>
+      <path d="M20 22 L38 22 L43 45 L22 45 Z" fill="#e94f64"/>
+      <path d="M21 27 L8 39" fill="none"/>
+      <path d="M38 27 L48 35" fill="none"/>
+      <path d="M27 45 L20 65" fill="none"/>
+      <path d="M35 45 L45 64" fill="none"/>
+      <path d="M17 65 L13 73" fill="none"/>
+      <path d="M44 64 L49 71" fill="none"/>
+    </g>
+  </defs>
+
+  <use href="#rider" x="0" y="0"/>
+  <use href="#rider" x="52" y="1" transform="rotate(-2 78 39)"/>
+  <use href="#rider" x="104" y="0" transform="rotate(2 130 39)"/>
+  <use href="#rider" x="156" y="1" transform="rotate(-1 182 39)"/>
+</svg>
+
